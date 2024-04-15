@@ -1,0 +1,92 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+ name: keda-ccu2-sa
+ annotations:
+   eks.amazonaws.com/role-arn: arn:aws:iam::025381531841:role/pa-cop-kead-role
+
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keda-ccu2-deployment
+  labels:
+    app: ccu2-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ccu2-api
+  template:
+    metadata:
+      labels:
+        app: ccu2-api
+    spec:
+      serviceAccountName: keda-ccu2-sa
+      containers:
+        - name: container
+          env:
+            - name: ASPNETCORE_ENVIRONMENT
+              value: Development
+            - name: QueueUrl
+              value: https://sqs.us-east-2.amazonaws.com/025381531841/keda-ccu2-sqs
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          image: 025381531841.dkr.ecr.us-east-2.amazonaws.com/tranzact/pa-cop/keda:1.0
+          resources:
+            requests:
+              cpu: "20m"
+              memory: "250Mi"
+            limits:
+              cpu: "40m"
+              memory: "500Mi"
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: keda-ccu2-service
+  labels:
+    app: ccu2-api
+spec:
+  type: LoadBalancer
+  ports:
+    - port: 80
+      targetPort: 8080
+      protocol: TCP
+      name: http
+  selector:
+    app: ccu2-api
+    
+---
+
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: keda-ccu2-cpu-memory-scaledobject
+  labels:
+    app: ccu2-api
+spec:
+  scaleTargetRef:
+    name: keda-ccu2-deployment
+  pollingInterval:  5
+  cooldownPeriod:   150
+  minReplicaCount:  1
+  maxReplicaCount:  15
+  triggers:
+  - type: cpu
+    metricType: Utilization
+    metadata:
+      value: "60"
+  - type: memory
+    metricType: Utilization
+    metadata:
+      value: "80"
